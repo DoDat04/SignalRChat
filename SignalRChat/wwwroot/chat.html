@@ -1,0 +1,112 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+</head>
+<body>
+    <h2>Chat Room</h2>
+    <div id="chatBox" style="border: 1px solid #ccc; height: 300px; overflow-y: scroll;"></div>
+
+    <input type="text" id="messageInput" placeholder="Nhập tin nhắn...">
+    <button onclick="sendMessage()">Gửi</button>
+
+    <script>
+        let currentUser = null; // Lưu thông tin user
+
+        // Gọi API để lấy thông tin user hiện tại
+        function loadCurrentUser() {
+            fetch("/api/users/current")
+                .then(response => response.json())
+                .then(data => {
+                    currentUser = data; // Lưu thông tin user
+                    console.log("User hiện tại:", currentUser);
+                })
+                .catch(err => console.error("❌ Lỗi khi lấy thông tin user:", err));
+        }
+
+        // Gọi API ngay khi trang được load
+        window.onload = loadCurrentUser;
+
+
+        // Function to get the conversationId from the URL query parameter
+        function getConversationIdFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get("conversationId");
+        }
+
+        const conversationId = getConversationIdFromUrl(); // Get the conversationId dynamically from the URL
+        console.log("conversationId:", conversationId, "Type:", typeof conversationId);
+
+        if (!conversationId) {
+            alert("Không tìm thấy conversationId trong URL.");
+            // Handle error or redirect
+        }
+
+        // Create a SignalR connection
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chatHub")
+            .configureLogging(signalR.LogLevel.Information)
+            .build();
+
+        // Listen for new messages from SignalR
+        connection.on("ReceiveMessage", (user, message) => {
+            const chatBox = document.getElementById("chatBox");
+            const msgElement = document.createElement("p");
+            msgElement.textContent = `${user}: ${message}`;
+            chatBox.appendChild(msgElement);
+        });
+
+        // Load existing messages when the page loads
+        function loadMessages() {
+            fetch(`/api/conversations/messages/${conversationId}`)
+                .then(response => response.json())
+                .then(messages => {
+                    const chatBox = document.getElementById("chatBox");
+                    messages.forEach(msg => {
+                        const msgElement = document.createElement("p");
+                        msgElement.textContent = `${msg.senderFullName}: ${msg.messageText}`; 
+                        chatBox.appendChild(msgElement);
+                    });
+                })
+                .catch(err => console.error("❌ Lỗi khi tải tin nhắn:", err));
+        }
+
+        // Start SignalR connection
+        connection.start().then(() => {
+            console.log("✅ SignalR connected!");
+            loadMessages(); // Load previous messages once connected
+        }).catch(err => console.error("❌ SignalR connection failed:", err));
+
+        // Send a new message via SignalR
+        function sendMessage() {
+            const messageInput = document.getElementById("messageInput").value.trim();
+            const conversationId1 = parseInt(getConversationIdFromUrl(), 10);
+
+            if (!messageInput) {
+                console.warn("⚠️ Tin nhắn trống!");
+                return;
+            }
+
+            connection.invoke("SendMessage", messageInput, conversationId1)
+                .then(() => {
+                    console.log("✅ Đã gửi tin nhắn!");
+                    document.getElementById("messageInput").value = "";
+
+                    // Hiển thị tin nhắn ngay lập tức
+                    if (currentUser) {
+                        const chatBox = document.getElementById("chatBox");
+                        const msgElement = document.createElement("p");
+                        msgElement.textContent = `${currentUser.fullName}: ${messageInput}`;
+                        chatBox.appendChild(msgElement);
+                        chatBox.scrollTop = chatBox.scrollHeight; // Cuộn xuống tin nhắn mới nhất
+                    }
+                })
+                .catch(err => console.error("❌ Lỗi khi gửi tin nhắn:", err));
+        }
+
+    </script>
+</body>
+</html>

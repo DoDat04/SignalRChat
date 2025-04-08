@@ -1,0 +1,122 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+</head>
+<body>
+    <button onclick="loginGoogle()" id="loginButton">Đăng nhập bằng Google</button>
+    <button onclick="logout()" id="logoutButton" style="display:none">Đăng xuất</button>
+    <p id="userInfo"></p>
+
+    <div id="searchSection" style="display:none">
+        <input id="searchInput" placeholder="Tìm kiếm người dùng" oninput="searchUsers()">
+        <ul id="searchResults"></ul>
+    </div>
+
+    <script>
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chatHub")
+            .build();
+
+        connection.on("ReceiveMessage", (user, message) => {
+            const li = document.createElement("li");
+            li.textContent = `${user}: ${message}`;
+            document.getElementById("messagesList").appendChild(li);
+        });
+
+        connection.start();
+
+        function sendMessage() {
+            const user = document.getElementById("user").value;
+            const message = document.getElementById("message").value;
+            connection.invoke("SendMessage", user, message);
+        }
+
+        function loginGoogle() {
+            window.location.href = "/api/auth/signin-google";
+        }
+
+        function logout() {
+            window.location.href = "/api/auth/logout";
+        }
+
+        async function checkLoginStatus() {
+            try {
+                const response = await fetch("/api/auth/user", { credentials: "include" });
+
+                if (response.ok) {
+                    const user = await response.json();
+                    if (user.email) {
+                        document.getElementById("userInfo").innerText = `Xin chào, ${user.name || user.email}`;
+                        document.getElementById("logoutButton").style.display = "block";
+                        document.getElementById("searchSection").style.display = "block";
+                        document.getElementById("loginButton").style.display = "none";
+                    }
+                }
+            } catch (error) {
+                console.error("Lỗi khi kiểm tra trạng thái đăng nhập:", error);
+            }
+        }
+
+        async function searchUsers() {
+            const query = document.getElementById("searchInput").value.trim();
+            if (query.length < 1) return;
+
+            try {
+                const response = await fetch(`/api/users/search?query=${encodeURIComponent(query)}`);
+                const users = await response.json();
+
+                const searchResults = document.getElementById("searchResults");
+                searchResults.innerHTML = ""; // Xóa kết quả cũ
+
+                if (users.length === 0) {
+                    searchResults.innerHTML = "<li>Không có kết quả</li>";
+                    return;
+                }
+
+                users.forEach(user => {
+                    const li = document.createElement("li");
+                    li.innerHTML = `
+                <span>${user.fullName} (${user.email})</span>
+                <button class="chat-button" data-userid="${user.userId}">Nhắn tin</button>
+            `;
+
+                    searchResults.appendChild(li);
+                });
+
+                // Thêm sự kiện click cho tất cả nút "Nhắn tin"
+                document.querySelectorAll(".chat-button").forEach(button => {
+                    button.addEventListener("click", (event) => {
+                        const receiverId = event.target.getAttribute("data-userid");
+                        startConversation(receiverId);
+                    });
+                });
+
+            } catch (error) {
+                console.error("Lỗi tìm kiếm:", error);
+            }
+        }
+
+        async function startConversation(receiverId) {
+            try {
+                const response = await fetch("/api/conversations/start-conversation", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ receiverId })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    window.location.href = `/chat.html?conversationId=${data.conversationId}`;
+                } else {
+                    console.error("Lỗi khi bắt đầu hội thoại");
+                }
+            } catch (error) {
+                console.error("Lỗi khi gửi yêu cầu:", error);
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", checkLoginStatus);
+    </script>
+</body>
+</html>
